@@ -19,23 +19,26 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.myapplication.security.EncryptionManager
 import com.example.myapplication.service.MonitoringService
-import com.example.myapplication.ui.screens.LauncherScreen
 import com.example.myapplication.ui.screens.ParentPortalScreen
 import com.example.myapplication.ui.screens.VaultScreen
 import com.example.myapplication.ui.theme.MyApplicationTheme
-import com.example.myapplication.ui.viewmodel.createGuardianViewModel
 
 class MainActivity : ComponentActivity() {
     private val permissions = listOf(
         Manifest.permission.CAMERA,
         Manifest.permission.RECORD_AUDIO,
-        Manifest.permission.QUERY_ALL_PACKAGES
+        Manifest.permission.FOREGROUND_SERVICE,
+        Manifest.permission.FOREGROUND_SERVICE_CAMERA,
+        Manifest.permission.FOREGROUND_SERVICE_MICROPHONE
     )
 
     private val permissionLauncher = registerForActivityResult(
@@ -54,15 +57,11 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MyApplicationTheme {
-                val viewModel = remember { createGuardianViewModel(this@MainActivity) }
                 val encryptionManager = remember { EncryptionManager(this@MainActivity) }
                 var showVault by remember { mutableStateOf(false) }
                 var showParentPortal by remember { mutableStateOf(false) }
                 var cornerTapCount by remember { mutableIntStateOf(0) }
                 var lastCornerTapTime by remember { mutableLongStateOf(0L) }
-                var isLongPressing by remember { mutableStateOf(false) }
-
-                val showVaultState by viewModel.showVault.collectAsState()
 
                 Box(
                     modifier = Modifier
@@ -96,12 +95,23 @@ class MainActivity : ComponentActivity() {
                             onClose = { showParentPortal = false }
                         )
 
-                        showVaultState -> VaultScreen(
-                            viewModel = viewModel,
-                            onClose = { viewModel.toggleVault() }
+                        showVault -> VaultScreen(
+                            encryptionManager = encryptionManager,
+                            onClose = { showVault = false }
                         )
 
-                        else -> LauncherScreen(viewModel = viewModel)
+                        else -> Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFF1A1A1A)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Recording active...",
+                                color = Color.White,
+                                fontSize = 16.sp
+                            )
+                        }
                     }
                 }
             }
