@@ -43,7 +43,7 @@ import java.io.File
 fun VaultScreen(encryptionManager: EncryptionManager, onClose: () -> Unit) {
     var pinInput by remember { mutableStateOf("") }
     var isPinVerified by remember { mutableStateOf(false) }
-    val correctPin = "1234"
+    val correctPin = "5847"
 
     Box(
         modifier = Modifier
