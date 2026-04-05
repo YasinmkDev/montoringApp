@@ -19,12 +19,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.material3.Text
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.myapplication.security.EncryptionManager
 import com.example.myapplication.service.MonitoringService
@@ -103,15 +100,8 @@ class MainActivity : ComponentActivity() {
                         else -> Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Color(0xFF1A1A1A)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Recording active...",
-                                color = Color.White,
-                                fontSize = 16.sp
-                            )
-                        }
+                                .background(Color(0xFF000000))
+                        )
                     }
                 }
             }
