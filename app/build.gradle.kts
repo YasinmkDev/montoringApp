@@ -61,10 +61,5 @@ dependencies {
     implementation(libs.androidx.camera.core)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.extensions)
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
-    kapt(libs.androidx.room.compiler)
     implementation(libs.androidx.security.crypto)
-    implementation(libs.androidx.media3.exoplayer)
-    implementation(libs.androidx.work.runtime.ktx)
 }

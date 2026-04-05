@@ -11,21 +11,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,13 +36,14 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myapplication.R
-import com.example.myapplication.ui.viewmodel.GuardianViewModel
+import com.example.myapplication.security.EncryptionManager
+import java.io.File
 
 @Composable
-fun VaultScreen(viewModel: GuardianViewModel, onClose: () -> Unit) {
+fun VaultScreen(encryptionManager: EncryptionManager, onClose: () -> Unit) {
     var pinInput by remember { mutableStateOf("") }
     var isPinVerified by remember { mutableStateOf(false) }
-    val correctPin = "1234"
+    val correctPin = "5847"
 
     Box(
         modifier = Modifier
@@ -66,7 +63,7 @@ fun VaultScreen(viewModel: GuardianViewModel, onClose: () -> Unit) {
                 onClose = onClose
             )
         } else {
-            AppVaultContent(viewModel = viewModel, onClose = onClose)
+            RecordingVaultContent(encryptionManager = encryptionManager, onClose = onClose)
         }
     }
 }
@@ -144,10 +141,10 @@ fun PinScreen(
 }
 
 @Composable
-fun AppVaultContent(viewModel: GuardianViewModel, onClose: () -> Unit) {
-    val allApps by viewModel.allApps.collectAsState()
-    val importedApps by viewModel.importedApps.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
+fun RecordingVaultContent(encryptionManager: EncryptionManager, onClose: () -> Unit) {
+    val recordings = remember { 
+        encryptionManager.getAllEncryptedFiles().sortedByDescending { it.lastModified() }
+    }
     var searchQuery by remember { mutableStateOf("") }
 
     Column(
@@ -163,7 +160,7 @@ fun AppVaultContent(viewModel: GuardianViewModel, onClose: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "App Vault",
+                text = "Recordings Vault",
                 color = Color.White,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold
@@ -179,13 +176,13 @@ fun AppVaultContent(viewModel: GuardianViewModel, onClose: () -> Unit) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        OutlinedTextField(
+        TextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp),
-            placeholder = { Text("Search apps...", color = Color.Gray) },
+            placeholder = { Text("Search recordings...", color = Color.Gray) },
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = Color(0xFF2A2A2A),
                 unfocusedContainerColor = Color(0xFF2A2A2A),
@@ -196,33 +193,33 @@ fun AppVaultContent(viewModel: GuardianViewModel, onClose: () -> Unit) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (isLoading) {
+        val filteredRecordings = recordings.filter { file ->
+            file.name.contains(searchQuery, ignoreCase = true)
+        }
+
+        if (filteredRecordings.isEmpty()) {
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator(color = Color.White)
+                Text(
+                    text = "No recordings found",
+                    color = Color.Gray,
+                    fontSize = 14.sp
+                )
             }
         } else {
-            val filteredApps = allApps.filter { (_, appName) ->
-                appName.contains(searchQuery, ignoreCase = true)
-            }
-
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(filteredApps) { (packageName, appName) ->
-                    val isImported = importedApps.any { it.packageName == packageName }
-                    VaultAppItem(
-                        appName = appName,
-                        isImported = isImported,
-                        onToggle = {
-                            if (isImported) {
-                                viewModel.removeApp(packageName)
-                            } else {
-                                viewModel.importApp(packageName)
-                            }
+                items(filteredRecordings) { file ->
+                    RecordingItem(
+                        file = file,
+                        onDelete = { 
+                            encryptionManager.deleteEncryptedFile(file.name)
                         }
                     )
                 }
@@ -232,20 +229,21 @@ fun AppVaultContent(viewModel: GuardianViewModel, onClose: () -> Unit) {
 }
 
 @Composable
-fun VaultAppItem(
-    appName: String,
-    isImported: Boolean,
-    onToggle: () -> Unit
+fun RecordingItem(
+    file: File,
+    onDelete: () -> Unit
 ) {
+    val type = if (file.name.contains("screen", ignoreCase = true)) "Screen" else "Camera"
+    val size = String.format("%.2f MB", file.length() / (1024.0 * 1024.0))
+    
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                color = if (isImported) Color(0xFF3A5F4A) else Color(0xFF2A2A2A),
+                color = Color(0xFF2A2A2A),
                 shape = RoundedCornerShape(8.dp)
             )
             .padding(12.dp)
-            .clickable { onToggle() }
     ) {
         Row(
             modifier = Modifier
@@ -254,20 +252,29 @@ fun VaultAppItem(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = appName,
-                color = Color.White,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
+            Column(
                 modifier = Modifier.weight(1f)
-            )
+            ) {
+                Text(
+                    text = "$type Recording",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = size,
+                    color = Color.Gray,
+                    fontSize = 12.sp
+                )
+            }
 
-            Text(
-                text = if (isImported) "Imported" else "Add",
-                color = if (isImported) Color(0xFF90EE90) else Color.Gray,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold
-            )
+            Button(
+                onClick = onDelete,
+                modifier = Modifier.padding(start = 8.dp)
+            ) {
+                Text("Delete", fontSize = 12.sp)
+            }
         }
     }
 }
